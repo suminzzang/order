@@ -44,7 +44,7 @@
       request = window.MockApi.call(body);
     } else {
       var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 25000) : null;
+      timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 45000) : null;
       // text/plain 으로 보내야 앱스 스크립트가 CORS 사전 요청 없이 받는다
       request = fetch(apiUrl, {
         method: 'POST',
@@ -344,7 +344,17 @@
     var edit = document.getElementById('editBtn');
     setBusy(btn, true, '저장 중');
     edit.disabled = true;
-    api('order', { order: state.draft, force: force, requestId: state.requestId }).then(function (res) {
+    // 주문이 몰리거나 연결이 잠깐 끊기면 같은 요청 ID로 두 번까지 자동 재시도한다 (두 번 저장되지 않음)
+    var payload = { order: state.draft, force: force, requestId: state.requestId };
+    var attempt = function (left) {
+      return api('order', payload).then(function (res) {
+        if ((res.busy || res.network) && left > 0) {
+          return new Promise(function (r) { setTimeout(r, 1500 + Math.random() * 1500); }).then(function () { return attempt(left - 1); });
+        }
+        return res;
+      });
+    };
+    attempt(2).then(function (res) {
       if (res.ok) {
         state.lastResult = { orderNo: res.orderNo, item: state.draft.item, name: state.draft.name };
         // 저장이 끝나면 바로 비운다. 다른 탭에 갔다 와도 방금 주문이 다시 채워져 있지 않게.

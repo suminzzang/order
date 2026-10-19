@@ -408,6 +408,7 @@
         html += '<div class="card order-item">' +
           '<div class="order-top"><div class="order-title">' + esc(o.name) + ' · ' + esc(o.item) + ' × ' + esc(o.qty) + '</div>' +
           '<span class="badge badge-' + esc(o.status) + '">' + esc(o.status) + '</span></div>' +
+          (o.requested ? '<div class="order-meta">요청: ' + esc(o.requested) + '</div>' : '') +
           '<div class="order-meta">' + esc(o.orderNo) + ' · ' + esc(o.at) + ' 접수' +
           (o.tracking ? ' · 송장 ' + esc(o.tracking) : '') + '</div>' +
           '</div>';

@@ -57,6 +57,8 @@
           orderNo: prefix + pad(seq, 3), at: now.getTime(), sellerId: seller.id,
           item: o.item, qty: o.qty, name: o.name, phone: o.phone, address: o.address, memo: o.memo, etc: o.etc || '',
           status: '접수', tracking: '', requestId: req.requestId || '',
+          // 체험 모드: '고구마'가 들어간 주문은 운영자가 정식 품목으로 확정한 것처럼 보여준다
+          confirmed: /고구마/.test(o.item) ? '장경례 긴특 호박고구마 5kg' : '',
         };
         db.orders.push(rec);
         save(db);
@@ -68,7 +70,8 @@
           var at = new Date(x.at);
           return {
             orderNo: x.orderNo, at: (at.getMonth() + 1) + '/' + at.getDate() + ' ' + pad(at.getHours(), 2) + ':' + pad(at.getMinutes(), 2),
-            day: (at.getMonth() + 1) + '/' + at.getDate(), item: x.item, qty: x.qty, name: x.name, status: x.status, tracking: x.tracking,
+            day: (at.getMonth() + 1) + '/' + at.getDate(),
+            item: x.confirmed || x.item, requested: x.confirmed && x.confirmed !== x.item ? x.item : '', qty: x.qty, name: x.name, status: x.status, tracking: x.tracking,
           };
         });
         return { ok: true, orders: list };

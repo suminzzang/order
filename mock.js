@@ -77,6 +77,23 @@
         return { ok: true, orders: list };
       }
 
+      case 'mySettlements': {
+        // 체험 모드: 예시 정산 2건
+        var t = new Date(); var y = new Date(t); y.setDate(t.getDate() - 1);
+        var lab = function (d) { return (d.getMonth() + 1) + '/' + d.getDate(); };
+        return { ok: true, settlements: [
+          { label: lab(t), count: 2, amount: 92000, paid: false, paidDay: '',
+            text: ['[' + lab(t) + ' 정산] ' + seller.name + '님', '',
+              '1. 김영희 / 장경례 긴특 호박고구마 5kg × 2 / 64,000원 / 송장 6012345678901',
+              '2. 이철수 / 사과 5kg × 1 / 28,000원 / 송장 6012345678902',
+              '──────────', '발송 2건 / 합계 92,000원', '이월 1건 (다음 정산에 포함)'].join('\n') },
+          { label: lab(y), count: 1, amount: 32000, paid: true, paidDay: '',
+            text: ['[' + lab(y) + ' 정산] ' + seller.name + '님', '',
+              '1. 박민수 / 장경례 긴특 호박고구마 5kg × 1 / 32,000원 / 송장 6012345678900',
+              '──────────', '발송 1건 / 합계 32,000원'].join('\n') },
+        ] };
+      }
+
       case 'rename': {
         var name = String(req.name || '').replace(/\s+/g, ' ').trim().slice(0, 20);
         if (!name) return { ok: false, error: '이름을 입력해 주세요.' };

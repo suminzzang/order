@@ -138,7 +138,7 @@
 
   function currentTab() {
     var h = location.hash.replace('#', '');
-    return h === 'orders' || h === 'me' ? h : 'order';
+    return h === 'orders' || h === 'settle' || h === 'me' ? h : 'order';
   }
 
   // ───────── 라우팅 ─────────
@@ -150,6 +150,7 @@
     if (!state.seller) return boot();
     var tab = currentTab();
     if (tab === 'orders') return renderOrders();
+    if (tab === 'settle') return renderSettle();
     if (tab === 'me') return renderMe();
     if (view === 'confirm') return renderConfirm();
     if (view === 'done') return renderDone();
@@ -424,6 +425,35 @@
           '</div>';
       });
       app.innerHTML = CANCEL_NOTICE + html;
+    });
+  }
+
+  // ───────── 내 정산 ─────────
+  function won(n) { return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '원'; }
+
+  function renderSettle() {
+    app.innerHTML = '<div class="loading">정산을 불러오는 중…</div>';
+    api('mySettlements').then(function (res) {
+      if (!res.ok) {
+        if (res.auth === false) return;
+        app.innerHTML = '<div class="card"><div class="alert alert-error">' + esc(res.error) + '</div>' +
+          '<button class="btn btn-block" id="retry">다시 시도</button></div>';
+        document.getElementById('retry').onclick = renderSettle;
+        return;
+      }
+      if (!res.settlements.length) {
+        app.innerHTML = '<div class="card empty">아직 정산 내역이 없습니다.</div>';
+        return;
+      }
+      app.innerHTML = res.settlements.map(function (s, i) {
+        return '<div class="card settle">' +
+          '<div class="order-top"><div class="order-title">' + esc(s.label) + ' 정산 · 발송 ' + esc(s.count) + '건</div>' +
+          '<span class="badge ' + (s.paid ? 'badge-발송' : 'badge-이월') + '">' + (s.paid ? '입금 확인' : '입금 전') + '</span></div>' +
+          '<div class="settle-amount">' + esc(won(s.amount)) + '</div>' +
+          (s.paid && s.paidDay ? '<div class="order-meta">' + esc(s.paidDay) + ' 입금 확인</div>' : '') +
+          '<details' + (i === 0 ? ' open' : '') + '><summary>정산 내역 보기</summary><pre class="settle-text">' + esc(s.text) + '</pre></details>' +
+          '</div>';
+      }).join('') + '<p class="sub center">정산 내용이 다르면 개인톡으로 문의해 주세요.</p>';
     });
   }
 

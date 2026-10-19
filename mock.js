@@ -2,7 +2,6 @@
 // 판사 코드 12345678 (홍길동), 87654321 (김판사). 주소에 ?mockItems=dropdown 을 붙이면 드롭다운 모드.
 (function () {
   var KEY = 'okc:mockdb';
-  var CUTOFF = 13 * 60;
 
   function load() {
     var db = null;
@@ -18,24 +17,17 @@
   function save(db) { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { /* 저장 불가 시 무시 */ } }
 
   function pad(n, l) { n = String(n); while (n.length < l) n = '0' + n; return n; }
-  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1, 2) + '-' + pad(d.getDate(), 2); }
-  function addDays(d, n) { var x = new Date(d); x.setDate(x.getDate() + n); return x; }
-  function minutes(d) { return d.getHours() * 60 + d.getMinutes(); }
 
   function config() {
     var dropdown = /mockItems=dropdown/.test(location.search);
     return {
       shopName: '○○농산 (체험)',
       notice: '마감 이후 주문은 다음 날 발송됩니다.',
-      cutoff: '13:00',
       itemMode: dropdown ? 'dropdown' : 'text',
       items: dropdown ? ['사과 5kg', '사과 10kg', '배 7.5kg'] : [],
     };
   }
 
-  function shipLabel(ship, now) {
-    return ship === ymd(now) ? '오늘 발송' : ship === ymd(addDays(now, 1)) ? '내일 발송' : ship + ' 발송';
-  }
 
   function handle(req) {
     var db = load();
@@ -50,7 +42,7 @@
       case 'order': {
         var o = req.order || {};
         var existing = db.orders.filter(function (x) { return x.requestId && x.requestId === req.requestId; })[0];
-        if (existing) return { ok: true, orderNo: existing.orderNo, shipDate: existing.shipDate, shipLabel: shipLabel(existing.shipDate, now) };
+        if (existing) return { ok: true, orderNo: existing.orderNo };
         if (!req.force) {
           var since = now.getTime() - 10 * 60 * 1000;
           var dup = db.orders.filter(function (x) {
@@ -61,15 +53,14 @@
         }
         var prefix = String(now.getFullYear()).slice(2) + pad(now.getMonth() + 1, 2) + pad(now.getDate(), 2) + '-';
         var seq = db.orders.filter(function (x) { return x.orderNo.indexOf(prefix) === 0; }).length + 1;
-        var ship = ymd(minutes(now) < CUTOFF ? now : addDays(now, 1));
         var rec = {
-          orderNo: prefix + pad(seq, 3), at: now.getTime(), shipDate: ship, sellerId: seller.id,
+          orderNo: prefix + pad(seq, 3), at: now.getTime(), sellerId: seller.id,
           item: o.item, qty: o.qty, name: o.name, phone: o.phone, address: o.address, memo: o.memo, etc: o.etc || '',
           status: '접수', tracking: '', requestId: req.requestId || '',
         };
         db.orders.push(rec);
         save(db);
-        return { ok: true, orderNo: rec.orderNo, shipDate: ship, shipLabel: shipLabel(ship, now) };
+        return { ok: true, orderNo: rec.orderNo };
       }
 
       case 'myOrders': {
@@ -77,7 +68,7 @@
           var at = new Date(x.at);
           return {
             orderNo: x.orderNo, at: (at.getMonth() + 1) + '/' + at.getDate() + ' ' + pad(at.getHours(), 2) + ':' + pad(at.getMinutes(), 2),
-            shipDate: x.shipDate, item: x.item, qty: x.qty, name: x.name, status: x.status, tracking: x.tracking,
+            day: (at.getMonth() + 1) + '/' + at.getDate(), item: x.item, qty: x.qty, name: x.name, status: x.status, tracking: x.tracking,
           };
         });
         return { ok: true, orders: list };

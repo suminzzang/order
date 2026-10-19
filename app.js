@@ -346,7 +346,7 @@
     edit.disabled = true;
     api('order', { order: state.draft, force: force, requestId: state.requestId }).then(function (res) {
       if (res.ok) {
-        state.lastResult = { orderNo: res.orderNo, shipLabel: res.shipLabel, item: state.draft.item, name: state.draft.name };
+        state.lastResult = { orderNo: res.orderNo, item: state.draft.item, name: state.draft.name };
         // 저장이 끝나면 바로 비운다. 다른 탭에 갔다 와도 방금 주문이 다시 채워져 있지 않게.
         // 같은 품목을 연달아 주문하는 경우가 많아 품목만 남긴다
         state.draft = emptyDraft(state.draft.item);
@@ -369,7 +369,7 @@
       '<h2>주문이 접수되었습니다</h2>' +
       '<div class="order-no">' + esc(r.orderNo) + '</div>' +
       '<p class="sub">' + esc(r.name) + ' · ' + esc(r.item) + '</p>' +
-      '<p><strong>' + esc(r.shipLabel) + '</strong> 예정</p>' +
+      '<p class="sub">송장번호가 입력되면 내 주문에서 "발송"으로 바뀝니다.</p>' +
       '<button class="btn btn-primary btn-block" id="againBtn">이어서 주문하기</button>' +
       '<a class="btn btn-block" href="#orders">내 주문 보기</a>' +
       '</div>';
@@ -403,7 +403,7 @@
       var html = '';
       var lastDay = '';
       res.orders.forEach(function (o) {
-        var day = o.shipDate ? o.shipDate.slice(5).replace('-', '/') + ' 발송분' : '';
+        var day = o.day ? o.day + ' 접수' : '';
         if (day !== lastDay) { html += '<div class="day">' + esc(day) + '</div>'; lastDay = day; }
         html += '<div class="card order-item">' +
           '<div class="order-top"><div class="order-title">' + esc(o.name) + ' · ' + esc(o.item) + ' × ' + esc(o.qty) + '</div>' +

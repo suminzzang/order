@@ -1,5 +1,6 @@
 // 체험 모드: config.js 의 주소가 'mock' 일 때 앱스 스크립트 대신 브라우저 안에서 응답한다.
 // 판사 코드 12345678 (홍길동), 87654321 (김판사). 주소에 ?mockItems=dropdown 을 붙이면 드롭다운 모드.
+// 관리자 페이지(admin.html?s=demo) 관리자 코드 1234567890 (사장님).
 (function () {
   var KEY = 'okc:mockdb';
 
@@ -29,8 +30,84 @@
   }
 
 
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1, 2) + '-' + pad(d.getDate(), 2); }
+  function md(day) { return day ? Number(day.slice(5, 7)) + '/' + Number(day.slice(8, 10)) : ''; }
+
+  // 체험용 정산: 오늘 기준 지난 며칠치 (처음 한 번 만들어 저장)
+  function ensureSettlements(db) {
+    if (db.settlements) return;
+    var back = function (n) { var d = new Date(); d.setDate(d.getDate() - n); return ymd(d); };
+    var mk = function (sellerId, name, n, count, amount, paid) {
+      var day = back(n);
+      return { sellerId: sellerId, day: day, count: count, amount: amount, paid: paid, paidDay: paid ? back(n - 1) : '', by: paid ? '사장님' : '',
+        text: ['[' + md(day) + ' 정산] ' + name + '님', '',
+          '1. 김영희 / 장경례 긴특 호박고구마 5kg × ' + count + ' / ' + amount.toLocaleString() + '원',
+          '──────────', '발송 ' + count + '건 / 합계 ' + amount.toLocaleString() + '원'].join('\n') };
+    };
+    db.settlements = [
+      mk('S001', '홍길동', 4, 4, 120000, true), mk('S001', '홍길동', 3, 3, 80000, false),
+      mk('S001', '홍길동', 2, 3, 95000, false), mk('S001', '홍길동', 1, 2, 64000, false),
+      mk('S002', '김판사', 2, 1, 32000, true), mk('S002', '김판사', 1, 2, 60000, false),
+    ];
+  }
+
+  function adminDetail(db, sellerId) {
+    var seller = db.sellers.filter(function (s) { return s.id === sellerId; })[0];
+    if (!seller) return { ok: false, error: '판사를 찾지 못했습니다.' };
+    var cum = 0, unpaid = 0, days = 0, last = '';
+    var rows = db.settlements.filter(function (x) { return x.sellerId === sellerId; })
+      .sort(function (a, b) { return a.day < b.day ? -1 : 1; })
+      .map(function (x) {
+        if (!x.paid) { cum += x.amount; unpaid += x.amount; days++; } else if (x.paidDay > last) last = x.paidDay;
+        return { day: x.day, label: md(x.day), count: x.count, amount: x.amount, noPrice: 0, carried: 0, paid: x.paid, paidDay: md(x.paidDay), by: x.by, cum: cum, text: x.text };
+      });
+    return { ok: true, detail: { id: seller.id, name: seller.name, payer: seller.payer || '', unpaid: unpaid, unpaidDays: days, lastPaid: md(last), rows: rows } };
+  }
+
+  function adminSummary(db) {
+    var total = 0;
+    var sellers = db.sellers.map(function (s) {
+      var d = adminDetail(db, s.id).detail;
+      total += d.unpaid;
+      return { id: s.id, name: s.name, payer: s.payer || '', active: true, unpaid: d.unpaid, unpaidDays: d.unpaidDays, lastPaid: d.lastPaid };
+    }).sort(function (a, b) { return b.unpaid - a.unpaid; });
+    return { total: total, sellers: sellers, unsettledDays: [],
+      activeSellers: db.sellers.map(function (s) { return { id: s.id, name: s.name }; }) };
+  }
+
+  function handleAdmin(req, db) {
+    var admin = (db.admins || [{ id: 'A01', name: '사장님', code: '1234567890' }]).filter(function (a) { return a.code === String(req.code || ''); })[0];
+    if (!admin) return { ok: false, auth: false, error: '관리자 코드가 맞지 않습니다. 코드를 다시 확인해 주세요.' };
+    ensureSettlements(db);
+    var mark = function (match, paid) {
+      var today = ymd(new Date());
+      var n = 0;
+      db.settlements.forEach(function (x) {
+        if (x.sellerId !== req.sellerId || !match(x.day) || x.paid === paid) return;
+        x.paid = paid; x.paidDay = paid ? today : ''; x.by = paid ? admin.name : ''; n++;
+      });
+      if (!n) return { ok: false, error: '바꿀 정산이 없습니다. 화면을 새로고침해 주세요.' };
+      save(db);
+      return adminDetail(db, req.sellerId);
+    };
+    switch (req.action) {
+      case 'adminLogin': save(db); return { ok: true, admin: { id: admin.id, name: admin.name }, shopName: config().shopName, summary: adminSummary(db) };
+      case 'adminSummary': return { ok: true, summary: adminSummary(db) };
+      case 'adminSeller': return adminDetail(db, req.sellerId);
+      case 'adminSetPaid': return mark(function (d) { return d === req.day; }, !!req.paid);
+      case 'adminPayThrough': return mark(function (d) { return d <= req.day; }, true);
+      case 'adminOrder': {
+        var seller = db.sellers.filter(function (s) { return s.id === req.sellerId; })[0];
+        if (!seller) return { ok: false, error: '판사를 다시 골라 주세요.' };
+        return handle({ action: 'order', code: seller.code, order: req.order, force: req.force, requestId: req.requestId });
+      }
+    }
+    return { ok: false, error: '알 수 없는 요청입니다.' };
+  }
+
   function handle(req) {
     var db = load();
+    if (String(req.action || '').indexOf('admin') === 0) return handleAdmin(req, db);
     var seller = db.sellers.filter(function (s) { return s.code === String(req.code || ''); })[0];
     if (!seller) return { ok: false, auth: false, error: '판사 코드가 맞지 않습니다. 코드를 다시 확인해 주세요.' };
     var now = new Date();

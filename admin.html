@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>관리자</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="top-inner">
+      <div class="shop" id="shopName">관리자</div>
+      <div class="who" id="whoName"></div>
+    </div>
+    <nav class="tabs" id="tabs" hidden>
+      <a href="#home" data-tab="home">정산 · 입금</a>
+      <a href="#order" data-tab="order">대신 주문 넣기</a>
+    </nav>
+  </header>
+  <div class="mock-badge" id="mockBadge" hidden>체험 모드 · 시트에 저장되지 않습니다</div>
+  <main id="app" class="app" aria-live="polite"></main>
+
+  <script src="config.js"></script>
+  <script src="mock.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

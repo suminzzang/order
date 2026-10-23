@@ -229,3 +229,22 @@ button:not(.btn-primary) .spinner { border-color: rgba(0, 0, 0, .15); border-top
 .stale { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--sub); font-size: 13px; margin: -4px 0 10px; }
 .stale .spinner { width: 12px; height: 12px; border-width: 2px; border-color: rgba(0, 0, 0, .15); border-top-color: var(--sub); }
 .stale .link-btn { padding: 0 2px; font-size: 13px; }
+
+/* 관리자 페이지 */
+.due { color: var(--danger); }
+.clear { color: var(--ok); }
+.warn-text { color: var(--warn); }
+.back { display: inline-block; margin: -4px 0 8px; padding-left: 0; text-decoration: none; }
+.seller-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: inherit; text-decoration: none; padding: 14px 16px; }
+.seller-main { min-width: 0; }
+.seller-amount { font-size: 18px; font-weight: 800; white-space: nowrap; }
+.settle-row { padding: 14px 16px; }
+.settle-row.paid { background: #f7faf7; }
+.row-amount { font-weight: 800; white-space: nowrap; }
+.paid-line { color: var(--ok); font-size: 15px; font-weight: 600; margin-top: 4px; }
+.paid-line .link-btn { font-size: 14px; padding: 0 4px; }
+.settle-row .row-btns { margin-top: 10px; }
+.settle-row .row-btns button { padding: 11px 12px; }
+.settle-row details { margin-top: 10px; }
+.settle-row summary { color: var(--primary); font-weight: 600; cursor: pointer; font-size: 15px; }
+.settle-row .btn-small { margin-top: 8px; }

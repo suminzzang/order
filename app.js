@@ -4,10 +4,17 @@
   // ───────── 설정 · 저장소 ─────────
   var CFG = window.ORDER_CONFIG || { shops: {} };
   var params = new URLSearchParams(location.search);
-  var shopKey = params.get('s') || CFG.defaultShop || Object.keys(CFG.shops)[0] || 'default';
-  var apiUrl = CFG.shops[shopKey];
-  var isMock = !apiUrl || apiUrl === 'mock';
+  // 사업장은 링크의 ?s= 로만 고른다. 빠지거나 모르는 값이면 주문서를 열지 않는다
+  // (기본 사업장으로 열면 다른 사업장 판사가 우연히 같은 코드로 엉뚱한 시트에 주문할 수 있다)
+  var shopKey = params.get('s') || '';
+  var badLink = !Object.prototype.hasOwnProperty.call(CFG.shops, shopKey) || !CFG.shops[shopKey];
+  var apiUrl = badLink ? '' : CFG.shops[shopKey];
+  var isMock = apiUrl === 'mock';
   var CODE_KEY = 'okc:' + shopKey + ':code';
+  // 한 번 받은 판사 정보·내 주문·내 정산을 기억해 두는 곳. 탭을 누르면 이걸 먼저 보여주고 뒤에서 새로 받는다
+  var CACHE_KEY = 'okc:' + shopKey + ':cache';
+  // 이 시간(밀리초) 안에 받은 목록은 탭을 다시 눌러도 새로 받지 않는다
+  var FRESH_MS = 30000;
   var memoryStore = {};
 
   function storeGet(k) {
@@ -17,6 +24,20 @@
     memoryStore[k] = v;
     try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) { /* 사생활 보호 모드 등 */ }
   }
+
+  // 기억한 내용은 지금 판사 코드로 받은 것일 때만 쓴다 (다른 코드로 들어가면 버림)
+  function loadCache() {
+    try {
+      var c = JSON.parse(storeGet(CACHE_KEY) || 'null');
+      return c && state.code && c.code === state.code ? c : null;
+    } catch (e) { return null; }
+  }
+  function saveCache(patch) {
+    var c = loadCache() || { code: state.code };
+    Object.keys(patch).forEach(function (k) { c[k] = patch[k]; });
+    storeSet(CACHE_KEY, JSON.stringify(c));
+  }
+  function clearCache() { storeSet(CACHE_KEY, ''); }
 
   // ───────── 상태 ─────────
   var state = {
@@ -39,6 +60,7 @@
   function api(action, extra) {
     var body = Object.assign({ action: action, code: state.code }, extra || {});
     var timer = null;
+    var started = Date.now();
     var request;
     if (isMock) {
       request = window.MockApi.call(body);
@@ -60,10 +82,13 @@
       return { ok: false, network: true, error: '연결이 원활하지 않습니다. 잠시 후 다시 시도해 주세요.' };
     }).then(function (res) {
       if (timer) clearTimeout(timer);
+      // 전체 시간과 서버 처리 시간(ms)을 남겨 느린 원인이 연결인지 시트 읽기인지 본다
+      if (window.console && console.info) console.info('[api] ' + action + ' ' + (Date.now() - started) + 'ms' + (res && res.ms != null ? ' (서버 ' + res.ms + 'ms)' : ''));
       if (res && res.auth === false) {
         state.code = '';
         state.seller = null;
         storeSet(CODE_KEY, '');
+        clearCache();
         state.loginError = res.error;
         route();
       }
@@ -146,6 +171,7 @@
 
   function route() {
     renderHeader();
+    if (badLink) return renderBadLink();
     if (!state.code) return renderLogin();
     if (!state.seller) return boot();
     var tab = currentTab();
@@ -163,19 +189,51 @@
     window.scrollTo(0, 0);
   });
 
+  // 기억해 둔 판사 정보가 있으면 화면을 바로 열고, 코드 확인과 목록 받기는 뒤에서 한다
   function boot() {
+    var c = loadCache();
+    if (c && c.seller && c.config) {
+      state.seller = c.seller;
+      state.config = c.config;
+      route();
+      login();
+      return;
+    }
     app.innerHTML = '<div class="loading">불러오는 중…</div>';
-    api('login').then(function (res) {
-      if (res.ok) {
-        state.seller = res.seller;
-        state.config = res.config;
-        route();
-      } else if (res.auth !== false) {
+    login().then(function (res) {
+      if (!res.ok && res.auth !== false) {
         app.innerHTML = '<div class="card"><div class="alert alert-error">' + esc(res.error) + '</div>' +
           '<button class="btn btn-primary btn-block" id="retry">다시 시도</button></div>';
         document.getElementById('retry').onclick = boot;
       }
     });
+  }
+
+  // 판사 확인 + 내 주문 + 내 정산을 한 번에 받는다
+  function login() {
+    var hadSeller = !!state.seller;
+    return api('login', { include: ['orders', 'settlements'] }).then(function (res) {
+      if (!res.ok) return res;
+      var now = Date.now();
+      state.seller = res.seller;
+      state.config = res.config;
+      var patch = { seller: res.seller, config: res.config };
+      if (res.orders) patch.orders = { at: now, list: res.orders };
+      if (res.settlements) patch.settlements = { at: now, list: res.settlements };
+      saveCache(patch);
+      // 이미 화면이 열려 있으면 입력 중인 주문서는 건드리지 않고, 목록 탭만 새 내용으로 바꾼다
+      if (!hadSeller || currentTab() === 'orders' || currentTab() === 'settle') route();
+      else renderHeader();
+      return res;
+    });
+  }
+
+  function renderBadLink() {
+    app.innerHTML =
+      '<div class="card">' +
+      '<h1>링크가 올바르지 않습니다</h1>' +
+      '<p class="sub">카카오톡 채널 채팅방에서 [주문하기] → [주문서 열기]로 다시 들어와 주세요.</p>' +
+      '</div>';
   }
 
   // ───────── 판사 코드 입력 ─────────
@@ -203,13 +261,11 @@
       var btn = document.getElementById('loginBtn');
       setBusy(btn, true, '확인 중');
       state.code = code;
-      api('login').then(function (res) {
+      state.seller = null;
+      login().then(function (res) {
         if (res.ok) {
           storeSet(CODE_KEY, code);
-          state.seller = res.seller;
-          state.config = res.config;
           state.loginError = '';
-          route();
         } else if (res.auth !== false) {
           state.code = '';
           state.loginError = res.error;
@@ -358,6 +414,9 @@
     attempt(2).then(function (res) {
       if (res.ok) {
         state.lastResult = { orderNo: res.orderNo, item: state.draft.item, name: state.draft.name };
+        // 기억해 둔 내 주문에는 방금 주문이 없으므로, 다음에 열 때 보여주면서 바로 새로 받게 한다
+        var cached = loadCache();
+        if (cached && cached.orders) saveCache({ orders: { at: 0, list: cached.orders.list } });
         // 저장이 끝나면 바로 비운다. 다른 탭에 갔다 와도 방금 주문이 다시 채워져 있지 않게.
         // 같은 품목을 연달아 주문하는 경우가 많아 품목만 남긴다
         state.draft = emptyDraft(state.draft.item);
@@ -397,64 +456,103 @@
   // 접수와 발송 사이에 운영자가 직접 상태를 갱신하므로, 주문서에서는 취소를 받지 않는다
   var CANCEL_NOTICE = '<div class="notice">주문 취소·변경 요청은 개인톡으로 문의해 주세요.</div>';
 
-  function renderOrders() {
-    app.innerHTML = '<div class="loading">주문을 불러오는 중…</div>';
-    api('myOrders').then(function (res) {
-      if (!res.ok) {
-        if (res.auth === false) return;
-        app.innerHTML = '<div class="card"><div class="alert alert-error">' + esc(res.error) + '</div>' +
-          '<button class="btn btn-block" id="retry">다시 시도</button></div>';
-        document.getElementById('retry').onclick = renderOrders;
-        return;
-      }
-      if (!res.orders.length) {
-        app.innerHTML = CANCEL_NOTICE + '<div class="card empty">최근 주문이 없습니다.</div>';
-        return;
-      }
-      var html = '';
-      var lastDay = '';
-      res.orders.forEach(function (o) {
-        var day = o.day ? o.day + ' 접수' : '';
-        if (day !== lastDay) { html += '<div class="day">' + esc(day) + '</div>'; lastDay = day; }
-        html += '<div class="card order-item">' +
-          '<div class="order-top"><div class="order-title">' + esc(o.name) + ' · ' + esc(o.item) + ' × ' + esc(o.qty) + '</div>' +
-          '<span class="badge badge-' + esc(o.status) + '">' + esc(o.status) + '</span></div>' +
-          (o.requested ? '<div class="order-meta">요청: ' + esc(o.requested) + '</div>' : '') +
-          '<div class="order-meta">' + esc(o.orderNo) + ' · ' + esc(o.at) + ' 접수' +
-          (o.tracking ? ' · 송장 ' + esc(o.tracking) : '') + '</div>' +
-          '</div>';
+  // ───────── 목록 탭 공통: 기억한 내용 먼저, 뒤에서 새로 받기 ─────────
+  var inflight = {};
+
+  // 같은 목록을 동시에 두 번 받지 않는다 (탭을 빠르게 오가도 요청은 하나)
+  function refreshList(kind, action) {
+    if (!inflight[kind]) {
+      inflight[kind] = api(action).then(function (res) {
+        inflight[kind] = null;
+        if (res.ok) {
+          var patch = {};
+          patch[kind] = { at: Date.now(), list: res[kind] };
+          saveCache(patch);
+        }
+        return res;
       });
-      app.innerHTML = CANCEL_NOTICE + html;
+    }
+    return inflight[kind];
+  }
+
+  function hhmm(ms) {
+    var d = new Date(ms);
+    return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+
+  // opts: { tab, kind, action, loadingText, draw(list, statusHtml) }
+  function renderListTab(opts) {
+    var reload = function () { renderListTab(opts); };
+    var c = loadCache();
+    var entry = c && c[opts.kind];
+    var fresh = entry && Date.now() - entry.at < FRESH_MS;
+    if (entry) {
+      opts.draw(entry.list, fresh ? '' : '<div class="stale"><span class="spinner"></span>' + (entry.at ? esc(hhmm(entry.at)) + ' 기준 · ' : '') + '새로고침 중</div>');
+    } else {
+      app.innerHTML = '<div class="loading">' + esc(opts.loadingText) + '</div>';
+    }
+    if (fresh) return;
+    refreshList(opts.kind, opts.action).then(function (res) {
+      if (currentTab() !== opts.tab || !state.seller) return;
+      if (res.ok) return opts.draw(res[opts.kind], '');
+      if (res.auth === false) return;
+      if (entry) {
+        opts.draw(entry.list, '<div class="stale">' + (entry.at ? esc(hhmm(entry.at)) + ' 기준 · ' : '') +
+          '새로고침하지 못했습니다 <button class="link-btn" id="reloadList">다시 시도</button></div>');
+      } else {
+        app.innerHTML = '<div class="card"><div class="alert alert-error">' + esc(res.error) + '</div>' +
+          '<button class="btn btn-block" id="reloadList">다시 시도</button></div>';
+      }
+      document.getElementById('reloadList').onclick = reload;
     });
+  }
+
+  function renderOrders() {
+    renderListTab({ tab: 'orders', kind: 'orders', action: 'myOrders', loadingText: '주문을 불러오는 중…', draw: drawOrders });
+  }
+
+  function drawOrders(orders, statusHtml) {
+    if (!orders.length) {
+      app.innerHTML = statusHtml + CANCEL_NOTICE + '<div class="card empty">최근 주문이 없습니다.</div>';
+      return;
+    }
+    var html = '';
+    var lastDay = '';
+    orders.forEach(function (o) {
+      var day = o.day ? o.day + ' 접수' : '';
+      if (day !== lastDay) { html += '<div class="day">' + esc(day) + '</div>'; lastDay = day; }
+      html += '<div class="card order-item">' +
+        '<div class="order-top"><div class="order-title">' + esc(o.name) + ' · ' + esc(o.item) + ' × ' + esc(o.qty) + '</div>' +
+        '<span class="badge badge-' + esc(o.status) + '">' + esc(o.status) + '</span></div>' +
+        (o.requested ? '<div class="order-meta">요청: ' + esc(o.requested) + '</div>' : '') +
+        '<div class="order-meta">' + esc(o.orderNo) + ' · ' + esc(o.at) + ' 접수' +
+        (o.tracking ? ' · 송장 ' + esc(o.tracking) : '') + '</div>' +
+        '</div>';
+    });
+    app.innerHTML = statusHtml + CANCEL_NOTICE + html;
   }
 
   // ───────── 내 정산 ─────────
   function won(n) { return String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '원'; }
 
   function renderSettle() {
-    app.innerHTML = '<div class="loading">정산을 불러오는 중…</div>';
-    api('mySettlements').then(function (res) {
-      if (!res.ok) {
-        if (res.auth === false) return;
-        app.innerHTML = '<div class="card"><div class="alert alert-error">' + esc(res.error) + '</div>' +
-          '<button class="btn btn-block" id="retry">다시 시도</button></div>';
-        document.getElementById('retry').onclick = renderSettle;
-        return;
-      }
-      if (!res.settlements.length) {
-        app.innerHTML = '<div class="card empty">아직 정산 내역이 없습니다.</div>';
-        return;
-      }
-      app.innerHTML = res.settlements.map(function (s, i) {
-        return '<div class="card settle">' +
-          '<div class="order-top"><div class="order-title">' + esc(s.label) + ' 정산 · 발송 ' + esc(s.count) + '건</div>' +
-          '<span class="badge ' + (s.paid ? 'badge-발송' : 'badge-이월') + '">' + (s.paid ? '입금 확인' : '입금 전') + '</span></div>' +
-          '<div class="settle-amount">' + esc(won(s.amount)) + '</div>' +
-          (s.paid && s.paidDay ? '<div class="order-meta">' + esc(s.paidDay) + ' 입금 확인</div>' : '') +
-          '<details' + (i === 0 ? ' open' : '') + '><summary>정산 내역 보기</summary><pre class="settle-text">' + esc(s.text) + '</pre></details>' +
-          '</div>';
-      }).join('') + '<p class="sub center">정산 내용이 다르면 개인톡으로 문의해 주세요.</p>';
-    });
+    renderListTab({ tab: 'settle', kind: 'settlements', action: 'mySettlements', loadingText: '정산을 불러오는 중…', draw: drawSettle });
+  }
+
+  function drawSettle(settlements, statusHtml) {
+    if (!settlements.length) {
+      app.innerHTML = statusHtml + '<div class="card empty">아직 정산 내역이 없습니다.</div>';
+      return;
+    }
+    app.innerHTML = statusHtml + settlements.map(function (s, i) {
+      return '<div class="card settle">' +
+        '<div class="order-top"><div class="order-title">' + esc(s.label) + ' 정산 · 발송 ' + esc(s.count) + '건</div>' +
+        '<span class="badge ' + (s.paid ? 'badge-발송' : 'badge-이월') + '">' + (s.paid ? '입금 확인' : '입금 전') + '</span></div>' +
+        '<div class="settle-amount">' + esc(won(s.amount)) + '</div>' +
+        (s.paid && s.paidDay ? '<div class="order-meta">' + esc(s.paidDay) + ' 입금 확인</div>' : '') +
+        '<details' + (i === 0 ? ' open' : '') + '><summary>정산 내역 보기</summary><pre class="settle-text">' + esc(s.text) + '</pre></details>' +
+        '</div>';
+    }).join('') + '<p class="sub center">정산 내용이 다르면 개인톡으로 문의해 주세요.</p>';
   }
 
   // ───────── 내 정보 ─────────
@@ -479,6 +577,7 @@
       api('rename', { name: name }).then(function (res) {
         if (res.ok) {
           state.seller = res.seller;
+          saveCache({ seller: res.seller });
           renderHeader();
           renderMe('<div class="alert" style="background:#e8f5e9;color:#1b5e20">이름을 저장했습니다.</div>');
         } else if (res.auth !== false) {
@@ -489,6 +588,7 @@
     document.getElementById('logoutBtn').onclick = function () {
       if (!window.confirm('이 휴대폰에 저장된 판사 코드를 지울까요?')) return;
       storeSet(CODE_KEY, '');
+      clearCache();
       state.code = '';
       state.seller = null;
       state.loginError = '';

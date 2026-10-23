@@ -224,3 +224,8 @@ button:not(.btn-primary) .spinner { border-color: rgba(0, 0, 0, .15); border-top
 .code-input { font-size: 26px; letter-spacing: 6px; text-align: center; }
 
 .link-btn { background: none; color: var(--sub); text-decoration: underline; font-weight: 500; padding: 8px; }
+
+/* 기억해 둔 목록을 보여주는 동안 새로 받는 중이라는 표시 */
+.stale { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--sub); font-size: 13px; margin: -4px 0 10px; }
+.stale .spinner { width: 12px; height: 12px; border-width: 2px; border-color: rgba(0, 0, 0, .15); border-top-color: var(--sub); }
+.stale .link-btn { padding: 0 2px; font-size: 13px; }

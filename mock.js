@@ -36,8 +36,14 @@
     var now = new Date();
 
     switch (req.action) {
-      case 'login':
-        return { ok: true, seller: { id: seller.id, name: seller.name }, config: config() };
+      case 'login': {
+        // 실제 서버처럼 내 주문·내 정산을 같이 보낸다
+        var out = { ok: true, seller: { id: seller.id, name: seller.name }, config: config() };
+        var include = req.include || [];
+        if (include.indexOf('orders') !== -1) out.orders = handle({ action: 'myOrders', code: req.code }).orders;
+        if (include.indexOf('settlements') !== -1) out.settlements = handle({ action: 'mySettlements', code: req.code }).settlements;
+        return out;
+      }
 
       case 'order': {
         var o = req.order || {};
@@ -108,7 +114,9 @@
   window.MockApi = {
     call: function (req) {
       return new Promise(function (resolve) {
-        setTimeout(function () { resolve(handle(JSON.parse(JSON.stringify(req)))); }, 350);
+        // 실제 서버처럼 느리게 하려면 주소에 ?mockDelay=2000 (밀리초)
+        var delay = Number((/mockDelay=(\d+)/.exec(location.search) || [])[1]) || 350;
+        setTimeout(function () { resolve(handle(JSON.parse(JSON.stringify(req)))); }, delay);
       });
     },
   };
